@@ -18,8 +18,8 @@ router.get('/me', auth, async (req, res) => {
 router.post('/username', auth, async (req, res) => {
   const { username } = req.body;
   
-  if (!username || username.length < 5 || username.length > 20) {
-    return res.status(400).json({ error: 'Username must be 5-20 characters' });
+  if (!username || username.length < 5 || username.length > 10) {
+    return res.status(400).json({ error: 'Username must be 5-10 characters' });
   }
 
   if (!/^[a-z0-9_]+$/.test(username.toLowerCase())) {
