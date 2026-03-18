@@ -46,6 +46,28 @@ router.post('/username', auth, async (req, res) => {
   }
 });
 
+// PATCH /api/users/profile
+router.patch('/profile', auth, async (req, res) => {
+  const { name, about, profilePic } = req.body;
+  const updates = {};
+  
+  if (name) updates.name = name;
+  if (about) updates.about = about;
+  if (profilePic) updates.profilePic = profilePic;
+
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user.userId,
+      { $set: updates },
+      { new: true }
+    ).select('-__v');
+    
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/users/search?q=username
 router.get('/search', auth, async (req, res) => {
   const { q } = req.query;
