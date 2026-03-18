@@ -9,7 +9,7 @@ const router = express.Router();
 router.get('/', auth, async (req, res) => {
   try {
     const chats = await Chat.find({ participants: req.user.userId })
-      .populate('participants', 'name profilePic isOnline lastSeen')
+      .populate('participants', 'name username profilePic isOnline lastSeen')
       .populate('lastMessage')
       .sort({ lastMessageAt: -1 });
 
@@ -21,21 +21,33 @@ router.get('/', auth, async (req, res) => {
 
 // POST /api/chats/private — start or get private chat
 router.post('/private', auth, async (req, res) => {
-  const { targetUserId } = req.body;
-  if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
-
+  const { targetUserId, targetUsername } = req.body;
+  
   try {
+    let targetId = targetUserId;
+
+    if (targetUsername) {
+      const targetUser = await User.findOne({ username_lower: targetUsername.toLowerCase() });
+      if (!targetUser) return res.status(404).json({ error: 'User not found' });
+      targetId = targetUser._id;
+    }
+
+    if (!targetId) return res.status(400).json({ error: 'targetUserId or targetUsername required' });
+    if (targetId.toString() === req.user.userId.toString()) {
+      return res.status(400).json({ error: 'Cannot chat with yourself' });
+    }
+
     let chat = await Chat.findOne({
       type: 'private',
-      participants: { $all: [req.user.userId, targetUserId], $size: 2 },
-    }).populate('participants', 'name profilePic isOnline lastSeen');
+      participants: { $all: [req.user.userId, targetId], $size: 2 },
+    }).populate('participants', 'name username profilePic isOnline lastSeen');
 
     if (!chat) {
       chat = await Chat.create({
         type: 'private',
-        participants: [req.user.userId, targetUserId],
+        participants: [req.user.userId, targetId],
       });
-      chat = await chat.populate('participants', 'name profilePic isOnline lastSeen');
+      chat = await chat.populate('participants', 'name username profilePic isOnline lastSeen');
     }
 
     res.json(chat);

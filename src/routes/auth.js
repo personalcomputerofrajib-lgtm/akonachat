@@ -34,7 +34,11 @@ router.post('/google', async (req, res) => {
       { expiresIn: '30d' }
     );
 
-    res.json({ token, user });
+    res.json({ 
+      token, 
+      user,
+      requiresUsername: !user.username 
+    });
   } catch (err) {
     console.error(err);
     res.status(401).json({ error: 'Invalid Google token' });
