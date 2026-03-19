@@ -64,11 +64,18 @@ const setupSocket = (io) => {
           sequence: seq,
         });
 
-        await Chat.findByIdAndUpdate(chatId, {
-          lastMessage: msg._id,
-          lastMessageAt: msg.createdAt,
-          lastSequence: seq,
-        });
+        // Update Chat metadata AND mark as read for the SENDER
+        await Chat.updateOne(
+          { _id: chatId, "lastReadBy.userId": userId },
+          { 
+            $set: { 
+              "lastReadBy.$.lastReadSequence": seq,
+              lastMessage: msg._id,
+              lastMessageAt: msg.createdAt,
+              lastSequence: seq
+            }
+          }
+        );
 
         const populated = await msg.populate('senderId', 'name profilePic');
 
@@ -131,8 +138,31 @@ const setupSocket = (io) => {
         status: 'read', 
         userId,
         sequence: msg.sequence,
-        chatId: msg.chatId
+        chatId: msg.chatId.toString()
       });
+    });
+
+    // ── READ ALL (Mark entire chat as read) ───────────────────
+    socket.on('read_chat', async ({ chatId }) => {
+      try {
+        const chat = await Chat.findById(chatId);
+        if (!chat) return;
+
+        await Chat.updateOne(
+          { _id: chatId, "lastReadBy.userId": userId },
+          { $set: { "lastReadBy.$.lastReadSequence": chat.lastSequence } }
+        );
+
+        // Also mark all unread messages in this chat as read by this user
+        await Message.updateMany(
+          { chatId, senderId: { $ne: userId }, status: { $ne: 'read' } },
+          { $set: { status: 'read' }, $addToSet: { readBy: userId } }
+        );
+
+        socket.emit('chat_read_confirmed', { chatId });
+      } catch (err) {
+        console.error('Read chat error:', err);
+      }
     });
 
     // ── TYPING ──────────────────────────────────────────────
