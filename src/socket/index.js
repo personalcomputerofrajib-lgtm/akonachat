@@ -42,6 +42,11 @@ const setupSocket = (io) => {
     const chats = await Chat.find({ participants: userId }).select('_id');
     chats.forEach((c) => socket.join(c._id.toString()));
 
+    // Explicit join for new chats
+    socket.on('join', ({ chatId }) => {
+      socket.join(chatId);
+    });
+
     // ── SEND MESSAGE ────────────────────────────────────────
     socket.on('send_message', async (data) => {
       const { chatId, ciphertext, iv, clientMsgId } = data;
@@ -62,6 +67,7 @@ const setupSocket = (io) => {
         await Chat.findByIdAndUpdate(chatId, {
           lastMessage: msg._id,
           lastMessageAt: msg.createdAt,
+          lastSequence: seq,
         });
 
         const populated = await msg.populate('senderId', 'name profilePic');
@@ -78,27 +84,54 @@ const setupSocket = (io) => {
 
     // ── DELIVERED ───────────────────────────────────────────
     socket.on('delivered', async ({ msgId }) => {
+      const msg = await Message.findById(msgId);
+      if (!msg) return;
+
       await Message.findByIdAndUpdate(msgId, {
         $addToSet: { deliveredTo: userId },
         status: 'delivered',
       });
-      const msg = await Message.findById(msgId);
-      if (msg) io.to(msg.chatId.toString()).emit('message_status', { msgId, status: 'delivered', userId });
+      
+      io.to(msg.chatId.toString()).emit('message_status', { 
+        msgId, 
+        status: 'delivered', 
+        userId, 
+        chatId: msg.chatId 
+      });
     });
 
     // ── READ ─────────────────────────────────────────────────
     socket.on('read', async ({ msgId }) => {
+      const msg = await Message.findById(msgId);
+      if (!msg) return;
+
       await Message.findByIdAndUpdate(msgId, {
         $addToSet: { readBy: userId },
         status: 'read',
       });
-      const msg = await Message.findById(msgId);
-      if (msg) io.to(msg.chatId.toString()).emit('message_status', { msgId, status: 'read', userId });
+
+      // Update Chat lastReadBy for this user
+      await Chat.updateOne(
+        { _id: msg.chatId, 'lastReadBy.userId': userId },
+        { $max: { 'lastReadBy.$.lastReadSequence': msg.sequence } }
+      );
+
+      io.to(msg.chatId.toString()).emit('message_status', { 
+        msgId, 
+        status: 'read', 
+        userId,
+        sequence: msg.sequence,
+        chatId: msg.chatId
+      });
     });
 
     // ── TYPING ──────────────────────────────────────────────
     socket.on('typing', ({ chatId }) => {
-      socket.to(chatId).emit('typing', { userId, chatId });
+      socket.to(chatId).emit('user_typing', { userId, chatId });
+    });
+
+    socket.on('stop_typing', ({ chatId }) => {
+      socket.to(chatId).emit('user_stop_typing', { userId, chatId });
     });
 
     // ── SYNC (reconnection) ──────────────────────────────────

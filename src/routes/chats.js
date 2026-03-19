@@ -46,6 +46,10 @@ router.post('/private', auth, async (req, res) => {
       chat = await Chat.create({
         type: 'private',
         participants: [req.user.userId, targetId],
+        lastReadBy: [
+          { userId: req.user.userId, lastReadSequence: 0 },
+          { userId: targetId, lastReadSequence: 0 },
+        ],
       });
       chat = await chat.populate('participants', 'name username profilePic isOnline lastSeen');
     }

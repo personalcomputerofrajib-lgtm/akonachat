@@ -8,6 +8,13 @@ const chatSchema = new mongoose.Schema({
   groupPic: { type: String, default: '' },
   lastMessage: { type: mongoose.Schema.Types.ObjectId, ref: 'Message' },
   lastMessageAt: { type: Date },
+  lastSequence: { type: Number, default: 0 },
+  lastReadBy: [
+    {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      lastReadSequence: { type: Number, default: 0 },
+    }
+  ],
 }, { timestamps: true });
 
 module.exports = mongoose.model('Chat', chatSchema);

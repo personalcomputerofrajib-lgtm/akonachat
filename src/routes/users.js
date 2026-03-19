@@ -74,9 +74,17 @@ router.get('/search', auth, async (req, res) => {
   if (!q) return res.status(400).json({ error: 'Query required' });
 
   try {
+    const searchRegex = new RegExp(q.toLowerCase(), 'i');
     const users = await User.find({
-      username_lower: { $regex: `^${q.toLowerCase()}` },
-      _id: { $ne: req.user.userId },
+      $and: [
+        { _id: { $ne: req.user.userId } },
+        { 
+          $or: [
+            { name: { $regex: searchRegex } },
+            { username_lower: { $regex: searchRegex } }
+          ]
+        }
+      ]
     }).select('name username profilePic about isOnline lastSeen').limit(20);
 
     res.json(users);

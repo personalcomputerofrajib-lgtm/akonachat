@@ -10,6 +10,8 @@ const setupSocket = require('./src/socket');
 const authRoutes = require('./src/routes/auth');
 const userRoutes = require('./src/routes/users');
 const chatRoutes = require('./src/routes/chats');
+const mediaRoutes = require('./src/routes/media');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -19,13 +21,15 @@ const io = new Server(server, {
 
 // Middleware
 app.use(cors());
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/chats', chatRoutes);
+app.use('/api/media', mediaRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', app: 'AkonaChat' }));
 
