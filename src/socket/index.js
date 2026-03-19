@@ -55,6 +55,8 @@ const setupSocket = (io) => {
       try {
         const seq = await getNextSequence(chatId);
 
+        console.log(`[Socket] Message from ${userId} to chat ${chatId}. Ciphertext length: ${ciphertext.length}`);
+
         const msg = await Message.create({
           chatId,
           senderId: userId,
@@ -93,6 +95,7 @@ const setupSocket = (io) => {
         }
 
         const populated = await msg.populate('senderId', 'name profilePic');
+        console.log(`[Socket] Emitting message. Populated Sender: ${populated.senderId?.name} (${populated.senderId?._id})`);
 
         io.to(chatId).emit('receive_message', populated.toObject());
       } catch (err) {
