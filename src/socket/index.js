@@ -49,7 +49,7 @@ const setupSocket = (io) => {
 
     // ── SEND MESSAGE ────────────────────────────────────────
     socket.on('send_message', async (data) => {
-      const { chatId, ciphertext, iv, clientMsgId } = data;
+      const { chatId, ciphertext, iv, clientMsgId, mediaUrl } = data;
       if (!chatId || !ciphertext || !iv || !clientMsgId) return;
 
       try {
@@ -62,6 +62,8 @@ const setupSocket = (io) => {
           iv,
           clientMsgId,
           sequence: seq,
+          mediaUrl,
+          type: mediaUrl ? 'image' : 'text',
         });
 
         // Update Chat metadata AND mark as read for the SENDER
@@ -76,7 +78,7 @@ const setupSocket = (io) => {
               lastSequence: seq,
             },
           },
-          { arrayFilters: [{ 'elem.userId': userId }] }
+          { arrayFilters: [{ 'elem.userId': new (require('mongoose').Types.ObjectId)(userId) }] }
         );
 
         // If sender had no lastReadBy entry yet, push one now.
@@ -92,7 +94,7 @@ const setupSocket = (io) => {
 
         const populated = await msg.populate('senderId', 'name profilePic');
 
-        io.to(chatId).emit('receive_message', populated);
+        io.to(chatId).emit('receive_message', populated.toObject());
       } catch (err) {
         if (err.code === 11000) {
           // Duplicate clientMsgId — silently ignore (idempotent)
@@ -165,7 +167,7 @@ const setupSocket = (io) => {
         const readResult = await Chat.updateOne(
           { _id: chatId },
           { $set: { 'lastReadBy.$[elem].lastReadSequence': chat.lastSequence } },
-          { arrayFilters: [{ 'elem.userId': userId }] }
+          { arrayFilters: [{ 'elem.userId': new (require('mongoose').Types.ObjectId)(userId) }] }
         );
         if (readResult.modifiedCount === 0) {
           await Chat.updateOne(

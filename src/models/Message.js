@@ -7,6 +7,8 @@ const messageSchema = new mongoose.Schema({
   iv: { type: String, required: true },
   clientMsgId: { type: String, required: true, unique: true }, // idempotency
   sequence: { type: Number }, // atomic ordering via Redis INCR
+  type: { type: String, enum: ['text', 'image'], default: 'text' },
+  mediaUrl: { type: String },
   status: { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
   deliveredTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
