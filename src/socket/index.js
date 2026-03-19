@@ -65,17 +65,30 @@ const setupSocket = (io) => {
         });
 
         // Update Chat metadata AND mark as read for the SENDER
-        await Chat.updateOne(
-          { _id: chatId, "lastReadBy.userId": userId },
-          { 
-            $set: { 
-              "lastReadBy.$.lastReadSequence": seq,
+        // Use arrayFilters to reliably update the sender's lastReadBy entry.
+        const updateResult = await Chat.updateOne(
+          { _id: chatId },
+          {
+            $set: {
+              'lastReadBy.$[elem].lastReadSequence': seq,
               lastMessage: msg._id,
               lastMessageAt: msg.createdAt,
-              lastSequence: seq
-            }
-          }
+              lastSequence: seq,
+            },
+          },
+          { arrayFilters: [{ 'elem.userId': userId }] }
         );
+
+        // If sender had no lastReadBy entry yet, push one now.
+        if (updateResult.modifiedCount === 0) {
+          await Chat.updateOne(
+            { _id: chatId },
+            {
+              $set: { lastMessage: msg._id, lastMessageAt: msg.createdAt, lastSequence: seq },
+              $push: { lastReadBy: { userId, lastReadSequence: seq } },
+            }
+          );
+        }
 
         const populated = await msg.populate('senderId', 'name profilePic');
 
@@ -144,14 +157,23 @@ const setupSocket = (io) => {
 
     // ── READ ALL (Mark entire chat as read) ───────────────────
     socket.on('read_chat', async ({ chatId }) => {
+      console.log(`[Socket] User ${userId} marking chat ${chatId} as read`);
       try {
         const chat = await Chat.findById(chatId);
         if (!chat) return;
 
-        await Chat.updateOne(
-          { _id: chatId, "lastReadBy.userId": userId },
-          { $set: { "lastReadBy.$.lastReadSequence": chat.lastSequence } }
+        const readResult = await Chat.updateOne(
+          { _id: chatId },
+          { $set: { 'lastReadBy.$[elem].lastReadSequence': chat.lastSequence } },
+          { arrayFilters: [{ 'elem.userId': userId }] }
         );
+        if (readResult.modifiedCount === 0) {
+          await Chat.updateOne(
+            { _id: chatId },
+            { $push: { lastReadBy: { userId, lastReadSequence: chat.lastSequence } } }
+          );
+        }
+        console.log(`[Socket] Updated lastReadSequence for chat ${chatId} to ${chat.lastSequence}`);
 
         // Also mark all unread messages in this chat as read by this user
         await Message.updateMany(
@@ -179,7 +201,7 @@ const setupSocket = (io) => {
       const messages = await Message.find({
         chatId,
         sequence: { $gt: lastSequence },
-      }).sort({ sequence: 1 }).limit(100);
+      }).sort({ sequence: 1 }).limit(100).populate('senderId', 'name profilePic');
 
       socket.emit('sync_messages', messages);
     });
