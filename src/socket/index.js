@@ -110,11 +110,21 @@ const setupSocket = (io) => {
         status: 'read',
       });
 
-      // Update Chat lastReadBy for this user
-      await Chat.updateOne(
-        { _id: msg.chatId, 'lastReadBy.userId': userId },
-        { $max: { 'lastReadBy.$.lastReadSequence': msg.sequence } }
-      );
+      // Update Chat lastReadBy for this user - using atomic update with upsert-like logic for array
+      const chat = await Chat.findById(msg.chatId);
+      if (chat) {
+        const readIndex = chat.lastReadBy.findIndex(r => r.userId.toString() === userId);
+        if (readIndex !== -1) {
+          // Update existing
+          if (msg.sequence > chat.lastReadBy[readIndex].lastReadSequence) {
+            chat.lastReadBy[readIndex].lastReadSequence = msg.sequence;
+          }
+        } else {
+          // Add new entry
+          chat.lastReadBy.push({ userId, lastReadSequence: msg.sequence });
+        }
+        await chat.save();
+      }
 
       io.to(msg.chatId.toString()).emit('message_status', { 
         msgId, 

@@ -70,8 +70,11 @@ router.patch('/profile', auth, async (req, res) => {
 
 // GET /api/users/search?q=username
 router.get('/search', auth, async (req, res) => {
-  const { q } = req.query;
+  let { q } = req.query;
   if (!q) return res.status(400).json({ error: 'Query required' });
+
+  // Handle @ by stripping it
+  q = q.startsWith('@') ? q.substring(1) : q;
 
   try {
     const searchRegex = new RegExp(q.toLowerCase(), 'i');
@@ -85,7 +88,7 @@ router.get('/search', auth, async (req, res) => {
           ]
         }
       ]
-    }).select('name username profilePic about isOnline lastSeen').limit(20);
+    }).select('name username profilePic about isOnline lastSeen').limit(100); // Increased limit as requested
 
     res.json(users);
   } catch (err) {
