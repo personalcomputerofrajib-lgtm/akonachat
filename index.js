@@ -11,6 +11,7 @@ const authRoutes = require('./src/routes/auth');
 const userRoutes = require('./src/routes/users');
 const chatRoutes = require('./src/routes/chats');
 const mediaRoutes = require('./src/routes/media');
+const keyRoutes = require('./src/routes/keys');
 const path = require('path');
 const cron = require('node-cron');
 const fs = require('fs');
@@ -55,6 +56,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/media', mediaRoutes);
+app.use('/api/keys', keyRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', app: 'AkonaChat' }));
 
