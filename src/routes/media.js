@@ -26,16 +26,16 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp|gif/;
+    const allowedTypes = /jpeg|jpg|png|webp|gif|mpeg|mp3/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
     
     console.log(`[Media] Uploading: ${file.originalname}, Mimetype: ${file.mimetype}`);
     
     if (extname || mimetype) return cb(null, true);
-    cb(new Error(`File type not supported: ${file.mimetype}. Use JPEG, PNG, WEBP or GIF.`));
+    cb(new Error(`File type not supported: ${file.mimetype}. Use JPEG, PNG, WEBP, GIF or MP3.`));
   },
 });
 

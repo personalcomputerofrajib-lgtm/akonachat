@@ -12,6 +12,31 @@ const userRoutes = require('./src/routes/users');
 const chatRoutes = require('./src/routes/chats');
 const mediaRoutes = require('./src/routes/media');
 const path = require('path');
+const cron = require('node-cron');
+const fs = require('fs');
+
+// Cleanup Job: Deletes files in /uploads older than 7 days
+cron.schedule('0 0 * * *', () => {
+  const uploadDir = path.join(__dirname, 'uploads');
+  const now = Date.now();
+  const weekInMs = 7 * 24 * 60 * 60 * 1000;
+
+  fs.readdir(uploadDir, (err, files) => {
+    if (err) return console.error('[Cleanup] Error:', err);
+    
+    files.forEach(file => {
+      const filePath = path.join(uploadDir, file);
+      fs.stat(filePath, (err, stats) => {
+        if (err) return;
+        if (now - stats.mtimeMs > weekInMs) {
+          fs.unlink(filePath, (err) => {
+            if (!err) console.log(`[Cleanup] Deleted: ${file}`);
+          });
+        }
+      });
+    });
+  });
+});
 
 const app = express();
 const server = http.createServer(app);
