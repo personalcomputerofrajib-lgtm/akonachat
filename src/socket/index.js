@@ -53,6 +53,20 @@ const setupSocket = (io) => {
       if (!chatId || !ciphertext || !iv || !clientMsgId) return;
 
       try {
+        const chat = await Chat.findById(chatId);
+        if (!chat) return;
+
+        // Block Check: Ensure neither participant has blocked the other
+        const participants = await User.find({ _id: { $in: chat.participants } });
+        const sender = participants.find(p => p._id.toString() === userId);
+        const recipient = participants.find(p => p._id.toString() !== userId);
+        
+        if (sender && recipient) {
+          if (sender.blockedUsers.includes(recipient._id) || recipient.blockedUsers.includes(sender._id)) {
+            return socket.emit('error', { message: 'Cannot send message to a blocked user' });
+          }
+        }
+
         const seq = await getNextSequence(chatId);
 
         console.log(`[Socket] Message from ${userId} to chat ${chatId}. Ciphertext length: ${ciphertext.length}`);
@@ -187,6 +201,15 @@ const setupSocket = (io) => {
         );
 
         socket.emit('chat_read_confirmed', { chatId });
+        
+        // BROADCAST to everyone in the chat (including the user's other devices)
+        // so their ChatListScreen can refresh the unread count instantly.
+        io.to(chatId).emit('message_status', { 
+          chatId, 
+          userId, 
+          status: 'read',
+          lastReadSequence: chat.lastSequence 
+        });
       } catch (err) {
         console.error('Read chat error:', err);
       }
@@ -199,6 +222,57 @@ const setupSocket = (io) => {
 
     socket.on('stop_typing', ({ chatId }) => {
       socket.to(chatId).emit('user_stop_typing', { userId, chatId });
+    });
+
+    // ── DELETE MESSAGE ──────────────────────────────────────
+    socket.on('delete_message', async ({ msgId, everyone }) => {
+      try {
+        const msg = await Message.findById(msgId);
+        if (!msg) return;
+
+        // "Delete for Me" (just add to isDeletedFor)
+        await Message.findByIdAndUpdate(msgId, {
+          $addToSet: { isDeletedFor: userId }
+        });
+
+        if (everyone && msg.senderId.toString() === userId) {
+          // "Delete for Everyone" (only sender can do this)
+          await Message.findByIdAndUpdate(msgId, {
+            isDeletedEveryone: true,
+            ciphertext: 'This message was deleted', // Replace content
+            type: 'text',
+            mediaUrl: null
+          });
+          io.to(msg.chatId.toString()).emit('message_deleted_everyone', { msgId, chatId: msg.chatId });
+        } else {
+          // Tell the specific user's other devices that it was deleted for them
+          socket.emit('message_deleted_me', { msgId, chatId: msg.chatId });
+        }
+      } catch (err) {
+        console.error('Delete error:', err);
+      }
+    });
+
+    // ── EDIT MESSAGE ────────────────────────────────────────
+    socket.on('edit_message', async ({ msgId, newText }) => {
+      try {
+        const msg = await Message.findById(msgId);
+        if (!msg || msg.senderId.toString() !== userId) return;
+
+        await Message.findByIdAndUpdate(msgId, {
+          ciphertext: newText,
+          isEdited: true
+        });
+
+        io.to(msg.chatId.toString()).emit('message_edited', { 
+          msgId, 
+          chatId: msg.chatId, 
+          newText, 
+          isEdited: true 
+        });
+      } catch (err) {
+        console.error('Edit error:', err);
+      }
     });
 
     // ── SYNC (reconnection) ──────────────────────────────────

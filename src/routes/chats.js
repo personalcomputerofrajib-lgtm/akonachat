@@ -34,6 +34,16 @@ router.post('/private', auth, async (req, res) => {
     }
 
     if (!targetId) return res.status(400).json({ error: 'targetUserId or targetUsername required' });
+    
+    // Block Check
+    const currentUser = await User.findById(req.user.userId);
+    const targetUser = await User.findById(targetId);
+    if (!targetUser) return res.status(404).json({ error: 'Target user not found' });
+
+    if (currentUser.blockedUsers.includes(targetId) || targetUser.blockedUsers.includes(req.user.userId)) {
+      return res.status(403).json({ error: 'Cannot start chat with a blocked user' });
+    }
+
     if (targetId.toString() === req.user.userId.toString()) {
       return res.status(400).json({ error: 'Cannot chat with yourself' });
     }

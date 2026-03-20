@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
   isOnline: { type: Boolean, default: false },
   lastSeen: { type: Date, default: Date.now },
   socketCount: { type: Number, default: 0 },
+  blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 }, { timestamps: true });
 
 userSchema.index({ username_lower: 1 });

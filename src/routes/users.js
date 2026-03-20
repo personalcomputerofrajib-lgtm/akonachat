@@ -78,9 +78,17 @@ router.get('/search', auth, async (req, res) => {
 
   try {
     const searchRegex = new RegExp(q.toLowerCase(), 'i');
+    
+    // Get the current user to check their blocked list and who blocked them
+    const currentUser = await User.findById(req.user.userId).select('blockedUsers');
+    const whoBlockedMe = await User.find({ blockedUsers: req.user.userId }).select('_id');
+    const whoBlockedMeIds = whoBlockedMe.map(u => u._id);
+
     const users = await User.find({
       $and: [
         { _id: { $ne: req.user.userId } },
+        { _id: { $nin: currentUser.blockedUsers } }, // Don't show users I blocked
+        { _id: { $nin: whoBlockedMeIds } }, // Don't show users who blocked me
         { 
           $or: [
             { name: { $regex: searchRegex } },
@@ -88,9 +96,39 @@ router.get('/search', auth, async (req, res) => {
           ]
         }
       ]
-    }).select('name username profilePic about isOnline lastSeen').limit(100); // Increased limit as requested
+    }).select('name username profilePic about isOnline lastSeen').limit(100);
 
     res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Block a user
+router.post('/block', auth, async (req, res) => {
+  try {
+    const { userIdToBlock } = req.body;
+    if (!userIdToBlock) return res.status(400).json({ error: 'User ID required' });
+
+    await User.findByIdAndUpdate(req.user.userId, {
+      $addToSet: { blockedUsers: userIdToBlock }
+    });
+    res.json({ message: 'User blocked' });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Unblock a user
+router.post('/unblock', auth, async (req, res) => {
+  try {
+    const { userIdToUnblock } = req.body;
+    if (!userIdToUnblock) return res.status(400).json({ error: 'User ID required' });
+
+    await User.findByIdAndUpdate(req.user.userId, {
+      $pull: { blockedUsers: userIdToUnblock }
+    });
+    res.json({ message: 'User unblocked' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
