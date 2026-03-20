@@ -71,6 +71,21 @@ router.post('/private', auth, async (req, res) => {
   }
 });
 
+// GET /api/chats/:chatId — get single chat details
+router.get('/:chatId', auth, async (req, res) => {
+  try {
+    const chat = await Chat.findOne({ 
+      _id: req.params.chatId,
+      participants: req.user.userId 
+    }).populate('participants', 'name username profilePic about isOnline lastSeen');
+    
+    if (!chat) return res.status(404).json({ error: 'Chat not found' });
+    res.json(chat);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/chats/:chatId/messages?before=timestamp
 router.get('/:chatId/messages', auth, async (req, res) => {
   const { before } = req.query;

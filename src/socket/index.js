@@ -275,6 +275,31 @@ const setupSocket = (io) => {
       }
     });
 
+    // ── MESSAGE REACTIONS ─────────────────────────────────────
+    socket.on('add_reaction', async ({ msgId, emoji }) => {
+      try {
+        const msg = await Message.findById(msgId);
+        if (!msg) return;
+
+        // Remove existing reaction from this user if any, then push new one
+        await Message.findByIdAndUpdate(msgId, {
+          $pull: { reactions: { userId: userId } }
+        });
+        
+        const updatedMsg = await Message.findByIdAndUpdate(msgId, {
+          $push: { reactions: { userId, emoji } }
+        }, { new: true });
+
+        io.to(msg.chatId.toString()).emit('message_reaction_updated', {
+          msgId,
+          chatId: msg.chatId,
+          reactions: updatedMsg.reactions
+        });
+      } catch (err) {
+        console.error('Reaction error:', err);
+      }
+    });
+
     // ── SYNC (reconnection) ──────────────────────────────────
     socket.on('sync', async ({ chatId, lastSequence }) => {
       const messages = await Message.find({
@@ -283,6 +308,24 @@ const setupSocket = (io) => {
       }).sort({ sequence: 1 }).limit(100).populate('senderId', 'name profilePic');
 
       socket.emit('sync_messages', messages);
+    });
+  
+    // ── CHAT SETTINGS (Theme/Wallpaper) ──────────────────────
+    socket.on('update_chat_settings', async ({ chatId, themeColor, wallpaperUrl }) => {
+      try {
+        const update = {};
+        if (themeColor) update.themeColor = themeColor;
+        if (wallpaperUrl) update.wallpaperUrl = wallpaperUrl;
+
+        const chat = await Chat.findByIdAndUpdate(chatId, update, { new: true });
+        io.to(chatId).emit('chat_settings_updated', {
+          chatId,
+          themeColor: chat.themeColor,
+          wallpaperUrl: chat.wallpaperUrl
+        });
+      } catch (err) {
+        console.error('Settings update error:', err);
+      }
     });
 
     // ── DISCONNECT ───────────────────────────────────────────
