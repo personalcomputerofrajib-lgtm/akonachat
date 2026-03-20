@@ -1,4 +1,25 @@
 require('dotenv').config();
+
+// ✅ VALIDATE ENVIRONMENT VARIABLES
+const requiredEnvVars = [
+  'MONGO_URI',
+  'JWT_SECRET',
+  'GOOGLE_CLIENT_ID'
+  // REDIS_URL is optional as it has a default
+];
+
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ FATAL: Missing required environment variables:');
+  missingEnvVars.forEach(varName => {
+    console.error(`   - ${varName}`);
+  });
+  console.error('\nPlease add these variables to your .env file');
+  process.exit(1);
+}
+
+console.log('✅ All required environment variables are set');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');

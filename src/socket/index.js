@@ -4,10 +4,28 @@ const Message = require('../models/Message');
 const Chat = require('../models/Chat');
 const Redis = require('ioredis');
 
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+// Redis with error handling
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  maxRetriesPerRequest: 3,
+  connectTimeout: 5000,
+});
+
+redis.on('error', (err) => {
+  console.error('[Redis] Connection error:', err.message);
+});
+
+redis.on('connect', () => {
+  console.log('[Redis] Connected successfully to Redis');
+});
 
 const getNextSequence = async (chatId) => {
-  return await redis.incr(`seq:${chatId}`); // Atomic Redis INCR — no race condition
+  try {
+    return await redis.incr(`seq:${chatId}`);
+  } catch (err) {
+    console.error('[Redis] Sequence increment failed:', err.message);
+    // Fallback: use timestamp as sequence if Redis fails
+    return Math.floor(Date.now() / 1000);
+  }
 };
 
 const setupSocket = (io) => {
@@ -20,27 +38,36 @@ const setupSocket = (io) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.userId = decoded.userId;
       next();
-    } catch {
+    } catch (err) {
+      console.error('[Socket] Auth error:', err.message);
       next(new Error('Invalid token'));
     }
   });
 
   io.on('connection', async (socket) => {
     const userId = socket.userId;
+    console.log(`[Socket] User ${userId} connected`);
 
-    // Join personal room
-    socket.join(userId);
+    try {
+      // Join personal room
+      socket.join(userId);
 
-    // Presence: increment socket count
-    await User.findByIdAndUpdate(userId, {
-      $inc: { socketCount: 1 },
-      isOnline: true,
-    });
-    io.emit('presence', { userId, isOnline: true });
+      // Presence: increment socket count
+      await User.findByIdAndUpdate(userId, {
+        $inc: { socketCount: 1 },
+        isOnline: true,
+      }).catch(err => console.error('[Socket] Presence update error:', err.message));
+      
+      io.emit('presence', { userId, isOnline: true });
 
-    // Join all user's chat rooms
-    const chats = await Chat.find({ participants: userId }).select('_id');
-    chats.forEach((c) => socket.join(c._id.toString()));
+      // Join all user's chat rooms
+      const chats = await Chat.find({ participants: userId }).select('_id')
+        .catch(err => {
+          console.error('[Socket] Chat rooms fetch error:', err.message);
+          return [];
+        });
+        
+      chats.forEach((c) => socket.join(c._id.toString()));
 
     // Explicit join for new chats
     socket.on('join', ({ chatId }) => {
@@ -328,23 +355,34 @@ const setupSocket = (io) => {
       }
     });
 
-    // ── DISCONNECT ───────────────────────────────────────────
-    socket.on('disconnect', async () => {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        { $inc: { socketCount: -1 } },
-        { new: true }
-      );
+      // ── DISCONNECT ───────────────────────────────────────────
+      socket.on('disconnect', async () => {
+        try {
+          const user = await User.findByIdAndUpdate(
+            userId,
+            { $inc: { socketCount: -1 } },
+            { new: true }
+          );
 
-      if (user.socketCount <= 0) {
-        await User.findByIdAndUpdate(userId, {
-          isOnline: false,
-          lastSeen: new Date(),
-          socketCount: 0,
-        });
-        io.emit('presence', { userId, isOnline: false, lastSeen: new Date() });
-      }
-    });
+          if (user && user.socketCount <= 0) {
+            await User.findByIdAndUpdate(userId, {
+              isOnline: false,
+              lastSeen: new Date(),
+              socketCount: 0,
+            });
+            io.emit('presence', { userId, isOnline: false, lastSeen: new Date() });
+          }
+          console.log(`[Socket] User ${userId} disconnected`);
+        } catch (err) {
+          console.error('[Socket] Disconnect handler error:', err.message);
+        }
+      });
+
+    } catch (err) {
+      console.error('[Socket] Connection handler error:', err.message);
+      socket.emit('error', { message: 'Connection error: ' + err.message });
+      socket.disconnect();
+    }
   });
 };
 
