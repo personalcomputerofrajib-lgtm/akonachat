@@ -56,6 +56,9 @@ router.post('/claim-daily', auth, async (req, res) => {
     user.lastLoginDate = now;
     await user.save();
 
+    // Reward XP for daily login
+    await User.addXP(req.user.userId, 50);
+
     res.json({
       message: `Claimed ${reward} coins!`,
       coins: user.coins,
@@ -137,6 +140,9 @@ router.post('/send-gift', auth, async (req, res) => {
 
     await sender.save();
     await recipient.save();
+
+    // Reward XP for gifting
+    await User.addXP(req.user.userId, 10);
 
     // The Socket notification should happen here or in the controller
     // req.io.to(recipientId).emit('gift_received', { itemId, senderName: isAnonymous ? 'Secret User' : sender.name });

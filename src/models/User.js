@@ -36,8 +36,31 @@ const userSchema = new mongoose.Schema({
     totalGiftsValue: { type: Number, default: 0 }
   }],
   signature: { type: String, default: '' },
+  xp: { type: Number, default: 0 },
+  level: { type: Number, default: 1 },
 }, { timestamps: true });
 
 userSchema.index({ username_lower: 1 });
+
+userSchema.statics.addXP = async function(userId, amount) {
+  const user = await this.findById(userId);
+  if (!user) return null;
+
+  user.xp += amount;
+  
+  // Logic: Level = floor(sqrt(xp) / 5) + 1
+  // level 1: 0xp, level 2: 25xp, level 3: 100xp, level 4: 225xp etc.
+  const oldLevel = user.level;
+  const newLevel = Math.floor(Math.sqrt(user.xp) / 5) + 1;
+  
+  if (newLevel > oldLevel) {
+    user.level = newLevel;
+    await user.save();
+    return { leveledUp: true, newLevel, currentXP: user.xp };
+  }
+  
+  await user.save();
+  return { leveledUp: false, newLevel, currentXP: user.xp };
+};
 
 module.exports = mongoose.model('User', userSchema);

@@ -151,6 +151,10 @@ const setupSocket = (io) => {
         }
 
         const populated = await msg.populate('senderId', 'name profilePic');
+        
+        // Reward XP for messaging
+        await User.addXP(userId, 1);
+        
         console.log(`[Socket] Emitting message. Populated Sender: ${populated.senderId?.name} (${populated.senderId?._id})`);
 
         io.to(chatId).emit('receive_message', populated.toObject());
