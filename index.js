@@ -127,6 +127,9 @@ app.use('/api/media', mediaRoutes);
 app.use('/api/keys', keyRoutes);
 app.use('/api/engagement', engagementRoutes);
 
+// Serving Static Assets (Banners, Sticker Icons)
+app.use('/static', express.static(path.join(__dirname, 'static')));
+
 // Healthcheck
 app.get('/api/health', (req, res) => {
   const mongoose = require('mongoose');
