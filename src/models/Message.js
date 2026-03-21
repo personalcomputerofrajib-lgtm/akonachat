@@ -3,10 +3,11 @@ const mongoose = require('mongoose');
 const messageSchema = new mongoose.Schema({
   chatId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat', required: true },
   senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  ciphertext: { type: String, required: true, maxlength: 10000 }, // E2EE — server never decrypts
-  iv: { type: String, required: true },
-  clientMsgId: { type: String, required: true, unique: true }, // idempotency
-  sequence: { type: Number }, // atomic ordering via Redis INCR
+  ciphertext: { type: String, required: true, maxlength: 10000 },
+  iv: { type: String }, // Optional for Signal messages
+  signalType: { type: Number }, // Required for Signal messages
+  clientMsgId: { type: String, required: true, unique: true },
+  sequence: { type: Number },
   type: { type: String, enum: ['text', 'image', 'voice'], default: 'text' },
   mediaUrl: { type: String },
   duration: { type: Number }, // For voice messages in seconds

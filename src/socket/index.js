@@ -76,8 +76,11 @@ const setupSocket = (io) => {
 
     // ── SEND MESSAGE ────────────────────────────────────────
     socket.on('send_message', async (data) => {
-      const { chatId, ciphertext, iv, clientMsgId, mediaUrl } = data;
-      if (!chatId || !ciphertext || !iv || !clientMsgId) return;
+      const { chatId, ciphertext, iv, clientMsgId, mediaUrl, signalType } = data;
+      if (!chatId || !ciphertext || !clientMsgId) return;
+      
+      // Standard E2EE uses 'iv', Signal Protocol uses 'signalType'
+      if (!iv && signalType === undefined) return;
 
       // Rate limiting: 500ms between messages
       const now = Date.now();
@@ -114,6 +117,7 @@ const setupSocket = (io) => {
           senderId: userId,
           ciphertext,
           iv,
+          signalType,
           clientMsgId,
           sequence: seq,
           mediaUrl,
