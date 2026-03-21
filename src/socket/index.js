@@ -79,9 +79,20 @@ const setupSocket = (io) => {
       const { chatId, ciphertext, iv, clientMsgId, mediaUrl } = data;
       if (!chatId || !ciphertext || !iv || !clientMsgId) return;
 
+      // Rate limiting: 500ms between messages
+      const now = Date.now();
+      if (socket.lastMessageAt && now - socket.lastMessageAt < 500) {
+        return socket.emit('error', { message: 'Too many messages. Please slow down.' });
+      }
+      socket.lastMessageAt = now;
+
+      if (ciphertext.length > 10000) return socket.emit('error', { message: 'Message too large' });
+
       try {
         const chat = await Chat.findById(chatId);
-        if (!chat) return;
+        if (!chat || !chat.participants.some(p => p.toString() === userId)) {
+          return socket.emit('error', { message: 'Not authorized for this chat' });
+        }
 
         // Block Check: Ensure neither participant has blocked the other
         const participants = await User.find({ _id: { $in: chat.participants } });
@@ -150,55 +161,60 @@ const setupSocket = (io) => {
 
     // ── DELIVERED ───────────────────────────────────────────
     socket.on('delivered', async ({ msgId }) => {
-      const msg = await Message.findById(msgId);
-      if (!msg) return;
+      try {
+        const msg = await Message.findById(msgId).populate('chatId');
+        if (!msg || !msg.chatId.participants.some(p => p.toString() === userId)) return;
 
-      await Message.findByIdAndUpdate(msgId, {
-        $addToSet: { deliveredTo: userId },
-        status: 'delivered',
-      });
-      
-      io.to(msg.chatId.toString()).emit('message_status', { 
-        msgId, 
-        status: 'delivered', 
-        userId, 
-        chatId: msg.chatId 
-      });
+        await Message.findByIdAndUpdate(msgId, {
+          $addToSet: { deliveredTo: userId },
+          status: 'delivered',
+        });
+        
+        io.to(msg.chatId._id.toString()).emit('message_status', { 
+          msgId, 
+          status: 'delivered', 
+          userId, 
+          chatId: msg.chatId._id 
+        });
+      } catch (err) {
+        console.error('[Socket] Delivered error:', err.message);
+      }
     });
 
     // ── READ ─────────────────────────────────────────────────
     socket.on('read', async ({ msgId }) => {
-      const msg = await Message.findById(msgId);
-      if (!msg) return;
+      try {
+        const msg = await Message.findById(msgId).populate('chatId');
+        if (!msg || !msg.chatId.participants.some(p => p.toString() === userId)) return;
 
-      await Message.findByIdAndUpdate(msgId, {
-        $addToSet: { readBy: userId },
-        status: 'read',
-      });
+        await Message.findByIdAndUpdate(msgId, {
+          $addToSet: { readBy: userId },
+          status: 'read',
+        });
 
-      // Update Chat lastReadBy for this user - using atomic update with upsert-like logic for array
-      const chat = await Chat.findById(msg.chatId);
-      if (chat) {
-        const readIndex = chat.lastReadBy.findIndex(r => r.userId.toString() === userId);
-        if (readIndex !== -1) {
-          // Update existing
-          if (msg.sequence > chat.lastReadBy[readIndex].lastReadSequence) {
-            chat.lastReadBy[readIndex].lastReadSequence = msg.sequence;
+        const chat = await Chat.findById(msg.chatId._id);
+        if (chat) {
+          const readIndex = chat.lastReadBy.findIndex(r => r.userId.toString() === userId);
+          if (readIndex !== -1) {
+            if (msg.sequence > chat.lastReadBy[readIndex].lastReadSequence) {
+              chat.lastReadBy[readIndex].lastReadSequence = msg.sequence;
+            }
+          } else {
+            chat.lastReadBy.push({ userId, lastReadSequence: msg.sequence });
           }
-        } else {
-          // Add new entry
-          chat.lastReadBy.push({ userId, lastReadSequence: msg.sequence });
+          await chat.save();
         }
-        await chat.save();
-      }
 
-      io.to(msg.chatId.toString()).emit('message_status', { 
-        msgId, 
-        status: 'read', 
-        userId,
-        sequence: msg.sequence,
-        chatId: msg.chatId.toString()
-      });
+        io.to(msg.chatId._id.toString()).emit('message_status', { 
+          msgId, 
+          status: 'read', 
+          userId,
+          sequence: msg.sequence,
+          chatId: msg.chatId._id.toString()
+        });
+      } catch (err) {
+        console.error('[Socket] Read error:', err.message);
+      }
     });
 
     // ── READ ALL (Mark entire chat as read) ───────────────────
@@ -206,7 +222,9 @@ const setupSocket = (io) => {
       console.log(`[Socket] User ${userId} marking chat ${chatId} as read`);
       try {
         const chat = await Chat.findById(chatId);
-        if (!chat) return;
+        if (!chat || !chat.participants.some(p => p.toString() === userId)) {
+          return socket.emit('error', { message: 'Not authorized for this chat' });
+        }
 
         const readResult = await Chat.updateOne(
           { _id: chatId },
@@ -243,19 +261,25 @@ const setupSocket = (io) => {
     });
 
     // ── TYPING ──────────────────────────────────────────────
-    socket.on('typing', ({ chatId }) => {
-      socket.to(chatId).emit('user_typing', { userId, chatId });
+    socket.on('typing', async ({ chatId }) => {
+      const chat = await Chat.findById(chatId).select('participants');
+      if (chat && chat.participants.some(p => p.toString() === userId)) {
+        socket.to(chatId).emit('user_typing', { userId, chatId });
+      }
     });
 
-    socket.on('stop_typing', ({ chatId }) => {
-      socket.to(chatId).emit('user_stop_typing', { userId, chatId });
+    socket.on('stop_typing', async ({ chatId }) => {
+      const chat = await Chat.findById(chatId).select('participants');
+      if (chat && chat.participants.some(p => p.toString() === userId)) {
+        socket.to(chatId).emit('user_stop_typing', { userId, chatId });
+      }
     });
 
     // ── DELETE MESSAGE ──────────────────────────────────────
     socket.on('delete_message', async ({ msgId, everyone }) => {
       try {
-        const msg = await Message.findById(msgId);
-        if (!msg) return;
+      const msg = await Message.findById(msgId).populate('chatId');
+      if (!msg || !msg.chatId.participants.some(p => p.toString() === userId)) return;
 
         // "Delete for Me" (just add to isDeletedFor)
         await Message.findByIdAndUpdate(msgId, {
@@ -283,8 +307,9 @@ const setupSocket = (io) => {
     // ── EDIT MESSAGE ────────────────────────────────────────
     socket.on('edit_message', async ({ msgId, newText }) => {
       try {
-        const msg = await Message.findById(msgId);
+        const msg = await Message.findById(msgId).populate('chatId');
         if (!msg || msg.senderId.toString() !== userId) return;
+        if (!msg.chatId.participants.some(p => p.toString() === userId)) return;
 
         await Message.findByIdAndUpdate(msgId, {
           ciphertext: newText,
@@ -305,10 +330,9 @@ const setupSocket = (io) => {
     // ── MESSAGE REACTIONS ─────────────────────────────────────
     socket.on('add_reaction', async ({ msgId, emoji }) => {
       try {
-        const msg = await Message.findById(msgId);
-        if (!msg) return;
+        const msg = await Message.findById(msgId).populate('chatId');
+        if (!msg || !msg.chatId.participants.some(p => p.toString() === userId)) return;
 
-        // Remove existing reaction from this user if any, then push new one
         await Message.findByIdAndUpdate(msgId, {
           $pull: { reactions: { userId: userId } }
         });
@@ -317,70 +341,83 @@ const setupSocket = (io) => {
           $push: { reactions: { userId, emoji } }
         }, { new: true });
 
-        io.to(msg.chatId.toString()).emit('message_reaction_updated', {
+        io.to(msg.chatId._id.toString()).emit('message_reaction_updated', {
           msgId,
-          chatId: msg.chatId,
+          chatId: msg.chatId._id,
           reactions: updatedMsg.reactions
         });
       } catch (err) {
-        console.error('Reaction error:', err);
+        console.error('[Socket] Reaction error:', err.message);
       }
     });
 
     // ── SYNC (reconnection) ──────────────────────────────────
     socket.on('sync', async ({ chatId, lastSequence }) => {
-      const messages = await Message.find({
-        chatId,
-        sequence: { $gt: lastSequence },
-      }).sort({ sequence: 1 }).limit(100).populate('senderId', 'name profilePic');
+      try {
+        const chat = await Chat.findById(chatId).select('participants');
+        if (!chat || !chat.participants.some(p => p.toString() === userId)) {
+          return socket.emit('error', { message: 'Not authorized' });
+        }
 
-      socket.emit('sync_messages', messages);
+        const messages = await Message.find({
+          chatId,
+          sequence: { $gt: lastSequence },
+        }).sort({ sequence: 1 }).limit(100).populate('senderId', 'name profilePic');
+
+        socket.emit('sync_messages', messages);
+      } catch (err) {
+        console.error('[Socket] Sync error:', err.message);
+      }
     });
   
-    // ── CHAT SETTINGS (Theme/Wallpaper) ──────────────────────
     socket.on('update_chat_settings', async ({ chatId, themeColor, wallpaperUrl }) => {
       try {
+        const chat = await Chat.findById(chatId);
+        if (!chat || !chat.participants.some(p => p.toString() === userId)) {
+          return socket.emit('error', { message: 'Not authorized' });
+        }
+
         const update = {};
         if (themeColor) update.themeColor = themeColor;
         if (wallpaperUrl) update.wallpaperUrl = wallpaperUrl;
 
-        const chat = await Chat.findByIdAndUpdate(chatId, update, { new: true });
+        const updatedChat = await Chat.findByIdAndUpdate(chatId, update, { new: true });
         io.to(chatId).emit('chat_settings_updated', {
           chatId,
-          themeColor: chat.themeColor,
-          wallpaperUrl: chat.wallpaperUrl
+          themeColor: updatedChat.themeColor,
+          wallpaperUrl: updatedChat.wallpaperUrl
         });
       } catch (err) {
-        console.error('Settings update error:', err);
+        console.error('[Socket] Settings update error:', err.message);
       }
     });
 
-      // ── DISCONNECT ───────────────────────────────────────────
-      socket.on('disconnect', async () => {
-        try {
-          const user = await User.findByIdAndUpdate(
-            userId,
-            { $inc: { socketCount: -1 } },
-            { new: true }
-          );
+    // ── DISCONNECT ───────────────────────────────────────────
+    socket.on('disconnect', async () => {
+      try {
+        const user = await User.findByIdAndUpdate(
+          userId,
+          { $inc: { socketCount: -1 } },
+          { new: true }
+        );
 
-          if (user && user.socketCount <= 0) {
-            await User.findByIdAndUpdate(userId, {
-              isOnline: false,
-              lastSeen: new Date(),
-              socketCount: 0,
-            });
-            io.emit('presence', { userId, isOnline: false, lastSeen: new Date() });
-          }
-          console.log(`[Socket] User ${userId} disconnected`);
-        } catch (err) {
-          console.error('[Socket] Disconnect handler error:', err.message);
+        if (user && user.socketCount <= 0) {
+          await User.findByIdAndUpdate(userId, {
+            isOnline: false,
+            lastSeen: new Date(),
+            socketCount: 0,
+          });
+          io.emit('presence', { userId, isOnline: false, lastSeen: new Date() });
         }
-      });
+        console.log(`[Socket] User ${userId} disconnected`);
+      } catch (err) {
+        console.error('[Socket] Disconnect handler error:', err.message);
+      }
+    });
 
     } catch (err) {
       console.error('[Socket] Connection handler error:', err.message);
-      socket.emit('error', { message: 'Connection error: ' + err.message });
+      socket.emit('error', { message: 'Connection error' });
       socket.disconnect();
     }
   });

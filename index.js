@@ -25,6 +25,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require('./src/config/db');
 const setupSocket = require('./src/socket');
 
@@ -62,15 +64,59 @@ cron.schedule('0 0 * * *', () => {
 
 const app = express();
 const server = http.createServer(app);
+
+// ✅ SECURITY CONFIG
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'http://localhost:5173'];
+
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: { 
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'POST'] 
+  },
+});
+
+// Global Rate Limiter
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  message: 'Too many requests from this IP, please try again after 15 minutes',
 });
 
 // Middleware
-app.use(cors());
-app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https://lh3.googleusercontent.com/", process.env.ALLOWED_ORIGINS || "*"],
+      connectSrc: ["'self'", "https://accounts.google.com"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" }
+}));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+app.use(express.json({ limit: '10kb' })); // Limit body size to prevent DoS
+app.use(mongoSanitize()); // Prevent NoSQL injection
+app.use('/api/', apiLimiter); // Apply rate limiter to all api routes
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -79,7 +125,19 @@ app.use('/api/chats', chatRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/keys', keyRoutes);
 
-app.get('/health', (req, res) => res.json({ status: 'ok', app: 'AkonaChat' }));
+// Healthcheck
+app.get('/api/health', (req, res) => {
+  const mongoose = require('mongoose');
+  const dbStatus = mongoose.connection.readyState === 1 ? 'up' : 'down';
+  res.json({
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date(),
+    checks: {
+      database: dbStatus,
+    }
+  });
+});
 
 // Socket.IO
 setupSocket(io);

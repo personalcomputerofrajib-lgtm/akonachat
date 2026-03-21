@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const messageSchema = new mongoose.Schema({
   chatId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat', required: true },
   senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  ciphertext: { type: String, required: true }, // E2EE — server never decrypts
+  ciphertext: { type: String, required: true, maxlength: 10000 }, // E2EE — server never decrypts
   iv: { type: String, required: true },
   clientMsgId: { type: String, required: true, unique: true }, // idempotency
   sequence: { type: Number }, // atomic ordering via Redis INCR

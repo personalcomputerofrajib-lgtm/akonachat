@@ -4,10 +4,15 @@ const auth = require('../middleware/auth');
 
 const router = express.Router();
 
+const xss = require('xss');
+const validator = require('validator');
+const AuditLog = require('../models/AuditLog');
+
 // GET /api/users/me
 router.get('/me', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('-__v');
+    const user = await User.findById(req.user.userId).select('name username profilePic about email hasCompletedOnboarding isOnline lastSeen createdAt');
+    if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -16,10 +21,12 @@ router.get('/me', auth, async (req, res) => {
 
 // POST /api/users/username
 router.post('/username', auth, async (req, res) => {
-  const { username } = req.body;
+  let { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username required' });
   
-  if (!username || username.length < 5 || username.length > 10) {
-    return res.status(400).json({ error: 'Username must be 5-10 characters' });
+  username = validator.trim(username);
+  if (username.length < 5 || username.length > 20) {
+    return res.status(400).json({ error: 'Username must be 5-20 characters' });
   }
 
   if (!/^[a-z0-9_]+$/.test(username.toLowerCase())) {
@@ -38,7 +45,7 @@ router.post('/username', auth, async (req, res) => {
         hasCompletedOnboarding: true 
       },
       { new: true }
-    );
+    ).select('name username profilePic about hasCompletedOnboarding');
 
     res.json(user);
   } catch (err) {
@@ -48,61 +55,67 @@ router.post('/username', auth, async (req, res) => {
 
 // PATCH /api/users/profile
 router.patch('/profile', auth, async (req, res) => {
-  const { name, about, profilePic } = req.body;
+  let { name, about, profilePic } = req.body;
   const updates = {};
   
-  if (name) updates.name = name;
-  if (about) updates.about = about;
-  if (profilePic) updates.profilePic = profilePic;
+  if (name) {
+    name = xss(validator.trim(name));
+    if (name.length > 50) return res.status(400).json({ error: 'Name too long (max 50)' });
+    updates.name = name;
+  }
+  
+  if (about) {
+    about = xss(validator.trim(about));
+    if (about.length > 200) return res.status(400).json({ error: 'About too long (max 200)' });
+    updates.about = about;
+  }
+  
+  if (profilePic) {
+    const isOurDomain = profilePic.includes(req.get('host'));
+    const isGoogle = profilePic.startsWith('https://lh3.googleusercontent.com/');
+    
+    if (!validator.isURL(profilePic, { protocols: ['http','https'], require_tld: false }) || (!isOurDomain && !isGoogle)) {
+      return res.status(400).json({ error: 'Invalid profile picture source' });
+    }
+    updates.profilePic = profilePic;
+  }
 
   try {
     const user = await User.findByIdAndUpdate(
       req.user.userId,
       { $set: updates },
       { new: true }
-    ).select('-__v');
+    ).select('name username profilePic about isOnline lastSeen');
     
+    // AUDIT LOG
+    AuditLog.create({
+      userId: req.user.userId,
+      action: 'PROFILE_UPDATE',
+      details: { updatedFields: Object.keys(updates) },
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    }).catch(e => console.error('Audit Log failed:', e.message));
+
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// GET /api/users/search?q=username
-router.get('/search', auth, async (req, res) => {
-  let { q } = req.query;
-  if (!q) return res.status(400).json({ error: 'Query required' });
+// Helper to escape regex special characters
+const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // Handle @ by stripping it
-  q = q.startsWith('@') ? q.substring(1) : q;
-
+// GET /api/users/blocked
+router.get('/blocked', auth, async (req, res) => {
   try {
-    const searchRegex = new RegExp(q.toLowerCase(), 'i');
-    
-    // Get the current user to check their blocked list and who blocked them
-    const currentUser = await User.findById(req.user.userId).select('blockedUsers');
-    const whoBlockedMe = await User.find({ blockedUsers: req.user.userId }).select('_id');
-    const whoBlockedMeIds = whoBlockedMe.map(u => u._id);
-
-    const users = await User.find({
-      $and: [
-        { _id: { $ne: req.user.userId } },
-        { _id: { $nin: currentUser.blockedUsers } }, // Don't show users I blocked
-        { _id: { $nin: whoBlockedMeIds } }, // Don't show users who blocked me
-        { 
-          $or: [
-            { name: { $regex: searchRegex } },
-            { username_lower: { $regex: searchRegex } }
-          ]
-        }
-      ]
-    }).select('name username profilePic about isOnline lastSeen').limit(100);
-
-    res.json(users);
+    const user = await User.findById(req.user.userId).populate('blockedUsers', 'name username profilePic about');
+    res.json(user.blockedUsers);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// GET /api/users/search?q=username
 
 // Block a user
 router.post('/block', auth, async (req, res) => {
@@ -113,6 +126,16 @@ router.post('/block', auth, async (req, res) => {
     await User.findByIdAndUpdate(req.user.userId, {
       $addToSet: { blockedUsers: userIdToBlock }
     });
+
+    // AUDIT LOG
+    AuditLog.create({
+      userId: req.user.userId,
+      action: 'BLOCK_USER',
+      details: { targetUserId: userIdToBlock },
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    }).catch(e => console.error('Audit Log failed:', e.message));
+
     res.json({ message: 'User blocked' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -122,13 +145,42 @@ router.post('/block', auth, async (req, res) => {
 // Unblock a user
 router.post('/unblock', auth, async (req, res) => {
   try {
-    const { userIdToUnblock } = req.body;
-    if (!userIdToUnblock) return res.status(400).json({ error: 'User ID required' });
+    const { userId } = req.body; // Match Flutter expected key
+    if (!userId) return res.status(400).json({ error: 'User ID required' });
 
     await User.findByIdAndUpdate(req.user.userId, {
-      $pull: { blockedUsers: userIdToUnblock }
+      $pull: { blockedUsers: userId }
     });
+
+    // AUDIT LOG
+    AuditLog.create({
+      userId: req.user.userId,
+      action: 'UNBLOCK_USER',
+      details: { targetUserId: userId },
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    }).catch(e => console.error('Audit Log failed:', e.message));
+
     res.json({ message: 'User unblocked' });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PATCH /api/users/privacy
+router.patch('/privacy', auth, async (req, res) => {
+  const { showLastSeen, showReadReceipts } = req.body;
+  const updates = {};
+  if (showLastSeen !== undefined) updates['privacySettings.showLastSeen'] = showLastSeen;
+  if (showReadReceipts !== undefined) updates['privacySettings.showReadReceipts'] = showReadReceipts;
+
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user.userId,
+      { $set: updates },
+      { new: true }
+    ).select('privacySettings');
+    res.json(user.privacySettings);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

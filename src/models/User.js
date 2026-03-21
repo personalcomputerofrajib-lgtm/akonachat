@@ -13,6 +13,12 @@ const userSchema = new mongoose.Schema({
   lastSeen: { type: Date, default: Date.now },
   socketCount: { type: Number, default: 0 },
   blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  isActive: { type: Boolean, default: true },
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  privacySettings: {
+    showLastSeen: { type: Boolean, default: true },
+    showReadReceipts: { type: Boolean, default: true },
+  },
 }, { timestamps: true });
 
 userSchema.index({ username_lower: 1 });

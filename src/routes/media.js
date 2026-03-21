@@ -34,29 +34,80 @@ const upload = multer({
     
     console.log(`[Media] Uploading: ${file.originalname}, Mimetype: ${file.mimetype}`);
     
-    if (extname || mimetype) return cb(null, true);
-    cb(new Error(`File type not supported: ${file.mimetype}. Use JPEG, PNG, WEBP, GIF or MP3.`));
+    if (extname && mimetype) return cb(null, true);
+    cb(new Error(`File type not supported. Both extension and mimetype must match JPEG, PNG, WEBP, GIF or MP3.`));
   },
+});
+
+const AuditLog = require('../models/AuditLog');
+
+const verifyMagicBytes = (filePath) => {
+  try {
+    const buffer = Buffer.alloc(8);
+    const fd = fs.openSync(filePath, 'r');
+    fs.readSync(fd, buffer, 0, 8, 0);
+    fs.closeSync(fd);
+
+    const hex = buffer.toString('hex').toUpperCase();
+    
+    // JPEG: FF D8 FF
+    if (hex.startsWith('FFD8FF')) return true;
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (hex.startsWith('89504E470D0A1A0A')) return true;
+    // GIF: 47 49 46 38
+    if (hex.startsWith('47494638')) return true;
+    // WEBP: RIFF .... WEBP
+    if (hex.startsWith('52494646') && hex.includes('57454250', 8)) return true;
+    // MP3: ID3 (49 44 33) or Frame Sync (FF FB / FF F3)
+    if (hex.startsWith('494433') || hex.startsWith('FFFB') || hex.startsWith('FFF3')) return true;
+
+    return false;
+  } catch (e) {
+    return false;
+  }
+};
+
+// GET /api/media/download/:filename
+router.get('/download/:filename', auth, (req, res) => {
+  const fileName = req.params.filename;
+  const filePath = path.join(uploadDir, fileName);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  res.sendFile(filePath);
 });
 
 // POST /api/media/upload
 router.post('/upload', auth, (req, res) => {
-  upload.single('file')(req, res, (err) => {
+  upload.single('file')(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
-      // A Multer error occurred when uploading (e.g. file too large)
       return res.status(400).json({ error: err.message });
     } else if (err) {
-      // An unknown error occurred (e.g. wrong file type from our fileFilter)
       return res.status(400).json({ error: err.message });
     }
 
-    // Everything went fine
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    // Handle reverse proxy setups correctly if needed, or fallback carefully.
+    // MAGIC BYTE VERIFICATION
+    if (!verifyMagicBytes(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Malicious or invalid file content detected.' });
+    }
+
+    // AUDIT LOG
+    await AuditLog.create({
+      userId: req.user.userId,
+      action: 'FILE_UPLOAD',
+      details: { filename: req.file.originalname, size: req.file.size },
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    }).catch(e => console.error('Audit Log failed:', e.message));
+
     const host = req.get('host');
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const url = `${protocol}://${host}/uploads/${req.file.filename}`;
+    const url = `${protocol}://${host}/api/media/download/${req.file.filename}`;
     
     res.json({ url });
   });

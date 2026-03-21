@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const PreKeyBundle = require('../models/PreKeyBundle');
+const AuditLog = require('../models/AuditLog');
 
 // @route   POST api/keys/upload
 // @desc    Upload or update a user's Pre-Key Bundle
@@ -10,7 +11,7 @@ router.post('/upload', auth, async (req, res) => {
   try {
     const { identityKey, signedPreKey, oneTimePreKeys } = req.body;
 
-    let bundle = await PreKeyBundle.findOne({ userId: req.user.id });
+    let bundle = await PreKeyBundle.findOne({ userId: req.user.userId });
 
     if (bundle) {
       bundle.identityKey = identityKey;
@@ -20,13 +21,21 @@ router.post('/upload', auth, async (req, res) => {
       await bundle.save();
     } else {
       bundle = new PreKeyBundle({
-        userId: req.user.id,
+        userId: req.user.userId,
         identityKey,
         signedPreKey,
         oneTimePreKeys
       });
       await bundle.save();
     }
+
+    // AUDIT LOG
+    AuditLog.create({
+      userId: req.user.userId,
+      action: 'KEY_BUNDLE_UPLOAD',
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    }).catch(e => console.error('Audit Log failed:', e.message));
 
     res.json({ msg: 'Pre-Key Bundle uploaded successfully' });
   } catch (err) {
