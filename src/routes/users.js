@@ -55,7 +55,7 @@ router.post('/username', auth, async (req, res) => {
 
 // PATCH /api/users/profile
 router.patch('/profile', auth, async (req, res) => {
-  let { name, about, profilePic } = req.body;
+  let { name, about, profilePic, profileBanner, signature, gameId } = req.body;
   const updates = {};
   
   if (name) {
@@ -69,15 +69,25 @@ router.patch('/profile', auth, async (req, res) => {
     if (about.length > 200) return res.status(400).json({ error: 'About too long (max 200)' });
     updates.about = about;
   }
+
+  if (signature) {
+    updates.signature = xss(validator.trim(signature));
+  }
+
+  if (gameId) {
+    updates.gameId = xss(validator.trim(gameId));
+  }
   
   if (profilePic) {
-    const isOurDomain = profilePic.includes(req.get('host'));
-    const isGoogle = profilePic.startsWith('https://lh3.googleusercontent.com/');
-    
-    if (!validator.isURL(profilePic, { protocols: ['http','https'], require_tld: false }) || (!isOurDomain && !isGoogle)) {
-      return res.status(400).json({ error: 'Invalid profile picture source' });
+    // Relaxed validation: Allow any URL but check for suspicious patterns
+    if (!validator.isURL(profilePic, { protocols: ['http','https'], require_tld: false })) {
+      return res.status(400).json({ error: 'Invalid profile picture URL' });
     }
     updates.profilePic = profilePic;
+  }
+
+  if (profileBanner) {
+    updates.profileBanner = profileBanner;
   }
 
   try {
@@ -85,7 +95,7 @@ router.patch('/profile', auth, async (req, res) => {
       req.user.userId,
       { $set: updates },
       { new: true }
-    ).select('name username profilePic about isOnline lastSeen');
+    ).select('name username profilePic profileBanner about gameId signature isOnline lastSeen');
     
     // AUDIT LOG
     AuditLog.create({
@@ -116,6 +126,24 @@ router.get('/blocked', auth, async (req, res) => {
 });
 
 // GET /api/users/search?q=username
+router.get('/search', auth, async (req, res) => {
+  const { q } = req.query;
+  if (!q) return res.json([]);
+
+  try {
+    const query = escapeRegExp(q);
+    const users = await User.find({
+      $or: [
+        { name: { $regex: query, $options: 'i' } },
+        { username: { $regex: query, $options: 'i' } }
+      ]
+    }).limit(20).select('name username profilePic about isOnline');
+    
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
 
 // Block a user
 router.post('/block', auth, async (req, res) => {

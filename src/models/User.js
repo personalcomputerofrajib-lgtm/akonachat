@@ -29,6 +29,13 @@ const userSchema = new mongoose.Schema({
     timestamp: { type: Date, default: Date.now }
   }],
   profileBanner: { type: String, default: '' },
+  gameId: { type: String, default: '' },
+  titles: [{ type: String }],
+  guards: [{
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    totalGiftsValue: { type: Number, default: 0 }
+  }],
+  signature: { type: String, default: '' },
 }, { timestamps: true });
 
 userSchema.index({ username_lower: 1 });
