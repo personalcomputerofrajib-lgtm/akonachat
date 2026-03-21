@@ -36,6 +36,7 @@ const chatRoutes = require('./src/routes/chats');
 const mediaRoutes = require('./src/routes/media');
 const keyRoutes = require('./src/routes/keys');
 const engagementRoutes = require('./src/routes/engagement');
+const momentRoutes = require('./src/routes/moments');
 const path = require('path');
 const cron = require('node-cron');
 const fs = require('fs');
@@ -126,6 +127,7 @@ app.use('/api/chats', chatRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/keys', keyRoutes);
 app.use('/api/engagement', engagementRoutes);
+app.use('/api/moments', momentRoutes);
 
 // Serving Static Assets (Banners, Sticker Icons)
 app.use('/static', express.static(path.join(__dirname, 'static')));

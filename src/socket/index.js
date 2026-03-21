@@ -399,12 +399,14 @@ const setupSocket = (io) => {
         const update = {};
         if (themeColor) update.themeColor = themeColor;
         if (wallpaperUrl) update.wallpaperUrl = wallpaperUrl;
+        if (data.backgroundColor) update.backgroundColor = data.backgroundColor;
 
         const updatedChat = await Chat.findByIdAndUpdate(chatId, update, { new: true });
         io.to(chatId).emit('chat_settings_updated', {
           chatId,
           themeColor: updatedChat.themeColor,
-          wallpaperUrl: updatedChat.wallpaperUrl
+          wallpaperUrl: updatedChat.wallpaperUrl,
+          backgroundColor: updatedChat.backgroundColor
         });
       } catch (err) {
         console.error('[Socket] Settings update error:', err.message);
