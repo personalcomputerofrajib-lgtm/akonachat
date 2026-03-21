@@ -90,12 +90,16 @@ router.patch('/profile', auth, async (req, res) => {
     updates.profileBanner = profileBanner;
   }
 
+  if (animeBanner) {
+    updates.animeBanner = animeBanner;
+  }
+
   try {
     const user = await User.findByIdAndUpdate(
       req.user.userId,
       { $set: updates },
       { new: true }
-    ).select('name username profilePic profileBanner about gameId signature isOnline lastSeen');
+    ).select('name username profilePic profileBanner animeBanner about gameId signature isOnline lastSeen');
     
     // AUDIT LOG
     AuditLog.create({

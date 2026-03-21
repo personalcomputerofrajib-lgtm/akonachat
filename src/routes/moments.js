@@ -47,6 +47,23 @@ router.get('/', auth, async (req, res) => {
 });
 
 /**
+ * @route   GET /api/moments/user/:userId
+ * @desc    Get moments created by a specific user
+ */
+router.get('/user/:userId', auth, async (req, res) => {
+  try {
+    const moments = await Moment.find({ userId: req.params.userId })
+      .populate('userId', 'name profilePic username')
+      .sort({ createdAt: -1 });
+    
+    res.json(moments);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server Error');
+  }
+});
+
+/**
  * @route   POST /api/moments/like/:id
  * @desc    Like/Unlike a moment
  */

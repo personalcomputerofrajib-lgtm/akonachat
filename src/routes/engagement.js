@@ -3,6 +3,19 @@ const router = express.Router();
 const User = require('../models/User');
 const auth = require('../middleware/auth'); // Assuming you have auth middleware
 
+const GIFT_COSTS = {
+  'rose': 5,
+  'heart': 10,
+  'chocolate': 20,
+  'coffee': 30,
+  'cake': 50,
+  'bouquet': 100,
+  'diamond': 150,
+  'car': 200,
+  'castle': 500,
+  'rocket': 1000
+};
+
 /**
  * @route   POST /api/engagement/claim-daily
  * @desc    Claim daily login reward and update streak
@@ -30,19 +43,19 @@ router.post('/claim-daily', auth, async (req, res) => {
     yesterday.setDate(yesterday.getDate() - 1);
 
     if (lastLogin && lastLogin.getTime() === yesterday.getTime()) {
-      user.streak += 1;
+      // Increment streak, reset to 1 if it was 7 (weekly cycle)
+      user.streak = (user.streak % 7) + 1;
     } else {
       user.streak = 1;
     }
 
     // Award coins based on streak (1-7 day cycle)
-    const day = ((user.streak - 1) % 7) + 1;
     const rewards = [15, 20, 25, 30, 35, 40, 50];
-    let reward = rewards[day - 1] || 15;
+    let reward = rewards[user.streak - 1] || 15;
     
     // Day 7 special logic: Add a random mystery gift
-    if (day === 7) {
-      const mysteryGifts = ['rose', 'cake', 'friendship_band'];
+    if (user.streak === 7) {
+      const mysteryGifts = ['rose', 'cake', 'heart'];
       const randomGift = mysteryGifts[Math.floor(Math.random() * mysteryGifts.length)];
       user.gifts.push({
         itemId: randomGift,
@@ -71,10 +84,7 @@ router.post('/claim-daily', auth, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/engagement/status
- * @desc    Get current daily reward status
- */
+// ── GET STATUS ──────────────────────────────────────────────
 router.get('/status', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -94,43 +104,31 @@ router.get('/status', auth, async (req, res) => {
       canClaim,
       streak: user.streak,
       lastClaimed: user.lastLoginDate,
-      nextRewardDay: ((user.streak) % 7) + 1
+      nextRewardDay: (user.streak % 7) + 1
     });
   } catch (err) {
     res.status(500).send('Server Error');
   }
 });
 
-/**
- * @route   POST /api/engagement/send-gift
- * @desc    Send a sticker gift to another user
- */
+// ── SEND GIFT ──────────────────────────────────────────────
 router.post('/send-gift', auth, async (req, res) => {
   const { recipientId, itemId, isAnonymous } = req.body;
-  if (!recipientId || !itemId) return res.status(400).json({ message: 'Missing fields' });
+  if (!recipientId || !itemId) return res.status(400).json({ message: 'Missing data' });
 
   try {
     const sender = await User.findById(req.user.userId);
     const recipient = await User.findById(recipientId);
 
-    if (!recipient) return res.status(404).json({ message: 'Recipient not found' });
+    if (!sender || !recipient) return res.status(404).json({ message: 'User not found' });
 
-    // Gift Prices
-    const prices = {
-      'rose': 10,
-      'cake': 25,
-      'friendship_band': 50,
-      'car': 500
-    };
-
-    const price = prices[itemId] || 10;
-
-    if (sender.coins < price) {
-      return res.status(400).json({ message: 'Not enough coins' });
+    const cost = GIFT_COSTS[itemId.toLowerCase()] || 10;
+    if (sender.coins < cost) {
+      return res.status(400).json({ message: `Insufficient coins. Need ${cost} Akona Coins.` });
     }
 
     // Deduct and Add
-    sender.coins -= price;
+    sender.coins -= cost;
     recipient.gifts.push({
       itemId,
       senderId: isAnonymous ? null : sender._id,
@@ -143,9 +141,6 @@ router.post('/send-gift', auth, async (req, res) => {
 
     // Reward XP for gifting
     await User.addXP(req.user.userId, 10);
-
-    // The Socket notification should happen here or in the controller
-    // req.io.to(recipientId).emit('gift_received', { itemId, senderName: isAnonymous ? 'Secret User' : sender.name });
 
     res.json({ message: 'Gift sent successfully!', coins: sender.coins });
   } catch (err) {

@@ -29,6 +29,7 @@ const userSchema = new mongoose.Schema({
     timestamp: { type: Date, default: Date.now }
   }],
   profileBanner: { type: String, default: '' },
+  animeBanner: { type: String, default: '' },
   gameId: { type: String, default: '' },
   titles: [{ type: String }],
   guards: [{
