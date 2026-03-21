@@ -35,6 +35,7 @@ const userRoutes = require('./src/routes/users');
 const chatRoutes = require('./src/routes/chats');
 const mediaRoutes = require('./src/routes/media');
 const keyRoutes = require('./src/routes/keys');
+const engagementRoutes = require('./src/routes/engagement');
 const path = require('path');
 const cron = require('node-cron');
 const fs = require('fs');
@@ -124,6 +125,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/keys', keyRoutes);
+app.use('/api/engagement', engagementRoutes);
 
 // Healthcheck
 app.get('/api/health', (req, res) => {

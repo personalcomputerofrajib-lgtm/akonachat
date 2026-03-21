@@ -19,6 +19,16 @@ const userSchema = new mongoose.Schema({
     showLastSeen: { type: Boolean, default: true },
     showReadReceipts: { type: Boolean, default: true },
   },
+  coins: { type: Number, default: 10 }, // Start with 10 coins
+  streak: { type: Number, default: 0 },
+  lastLoginDate: { type: Date },
+  gifts: [{
+    itemId: String,
+    senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    isAnonymous: { type: Boolean, default: false },
+    timestamp: { type: Date, default: Date.now }
+  }],
+  profileBanner: { type: String, default: '' },
 }, { timestamps: true });
 
 userSchema.index({ username_lower: 1 });

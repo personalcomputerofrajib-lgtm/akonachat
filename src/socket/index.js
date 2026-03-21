@@ -369,6 +369,25 @@ const setupSocket = (io) => {
         console.error('[Socket] Sync error:', err.message);
       }
     });
+
+    // ── GIFTS & ENGAGEMENT ──────────────────────────────────
+    socket.on('send_gift', async (data) => {
+      const { recipientId, itemId, isAnonymous } = data;
+      if (!recipientId || !itemId) return;
+
+      try {
+        const sender = await User.findById(userId).select('name');
+        // The business logic (coins/db) is handled in the REST API for security, 
+        // but we broadcast the UI notification here.
+        io.to(recipientId).emit('gift_received', {
+          itemId,
+          senderName: isAnonymous ? 'Secret User' : sender.name,
+          timestamp: new Date()
+        });
+      } catch (err) {
+        console.error('[Socket] Gift broadcast error:', err.message);
+      }
+    });
   
     socket.on('update_chat_settings', async ({ chatId, themeColor, wallpaperUrl }) => {
       try {
