@@ -11,8 +11,9 @@ router.get('/', auth, async (req, res) => {
   try {
     const chats = await Chat.find({ participants: req.user.userId })
       .populate('participants', 'name username profilePic isOnline lastSeen')
-      .populate('lastMessage')
-      .sort({ lastMessageAt: -1 });
+      .populate({ path: 'lastMessage', select: 'ciphertext type mediaUrl senderId createdAt', populate: { path: 'senderId', select: 'name' } })
+      .sort({ lastMessageAt: -1 })
+      .lean(); // lean() gives plain JS objects so we can attach lastReadBy directly
 
     res.json(chats);
   } catch (err) {

@@ -11,7 +11,8 @@ const AuditLog = require('../models/AuditLog');
 // GET /api/users/me
 router.get('/me', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('name username profilePic about email hasCompletedOnboarding isOnline lastSeen createdAt');
+    const user = await User.findById(req.user.userId)
+      .select('name username profilePic profileBanner animeBanner about email hasCompletedOnboarding isOnline lastSeen coins streak gifts gameId signature guards titles xp level createdAt');
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
   } catch (err) {
@@ -55,7 +56,7 @@ router.post('/username', auth, async (req, res) => {
 
 // PATCH /api/users/profile
 router.patch('/profile', auth, async (req, res) => {
-  let { name, about, profilePic, profileBanner, signature, gameId } = req.body;
+  let { name, about, profilePic, profileBanner, animeBanner, signature, gameId } = req.body;
   const updates = {};
   
   if (name) {
@@ -146,6 +147,24 @@ router.get('/search', auth, async (req, res) => {
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// GET /api/users/:id
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('name username profilePic about isOnline lastSeen coins streak gifts profileBanner animeBanner gameId signature guards titles xp level createdAt');
+    
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    res.json(user);
+  } catch (err) {
+    console.error('Fetch user error:', err);
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

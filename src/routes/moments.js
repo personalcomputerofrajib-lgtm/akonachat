@@ -21,10 +21,10 @@ router.post('/', auth, async (req, res) => {
     await moment.save();
     const populated = await moment.populate('userId', 'name profilePic username');
     
-    res.json(populated);
+    res.status(201).json(populated);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -83,7 +83,7 @@ router.post('/like/:id', auth, async (req, res) => {
     res.json(moment.likes);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

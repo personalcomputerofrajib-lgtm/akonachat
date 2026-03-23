@@ -1,0 +1,42 @@
+name: Deploy Backend to AWS
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ubuntu
+          key: ${{ secrets.AWS_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            echo "=== Pulling latest backend code ==="
+            cd ~/akonachat
+            git pull origin main || git pull origin master
+
+            echo "=== Installing dependencies ==="
+            npm install --production
+
+            echo "=== Restarting server with PM2 ==="
+            pm2 restart all || pm2 start index.js --name akonachat
+
+            echo "=== Checking server health ==="
+            sleep 3
+            curl -f http://localhost:9000/api/health && echo "✅ Server is healthy" || echo "⚠️ Health check failed"
+
+            echo "=== Deployment complete ==="
+            pm2 list
