@@ -15,7 +15,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy via SSH
+      - name: Copy files to AWS via SCP
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ubuntu
+          key: ${{ secrets.AWS_SSH_KEY }}
+          source: "src/,package.json,index.js"
+          target: "/home/ubuntu/akonachat-final-v4"
+          overwrite: true
+
+      - name: Restart PM2 via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.AWS_HOST }}
@@ -24,19 +34,14 @@ jobs:
           port: 22
           script: |
             set -e
-            echo "=== Pulling latest backend code ==="
-            cd ~/akonachat
-            git pull origin main || git pull origin master
-
+            cd /home/ubuntu/akonachat-final-v4
             echo "=== Installing dependencies ==="
             npm install --production
 
             echo "=== Restarting server with PM2 ==="
-            pm2 restart all || pm2 start index.js --name akonachat
+            pm2 restart akonachat-backend || pm2 start index.js --name akonachat-backend
 
             echo "=== Checking server health ==="
             sleep 3
             curl -f http://localhost:9000/api/health && echo "✅ Server is healthy" || echo "⚠️ Health check failed"
 
-            echo "=== Deployment complete ==="
-            pm2 list
